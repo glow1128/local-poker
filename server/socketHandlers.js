@@ -8,7 +8,7 @@ const socketToPlayer = new Map(); // socketId -> { roomId, playerId, playerName 
 // Action timers
 const actionTimers = new Map(); // roomId -> timer
 
-const ACTION_TIMEOUT = 300000;       // 30 seconds to act
+const ACTION_TIMEOUT = 20000;        // 20 seconds to act
 const DISCONNECT_TIMEOUT = 100000;   // 10 seconds before auto-fold
 const REMOVE_TIMEOUT = 600000;       // 60 seconds before removal
 const PAGE_NAV_GRACE = 50000;        // 5 seconds grace for page navigation

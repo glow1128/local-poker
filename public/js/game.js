@@ -30,6 +30,7 @@
   const showdownTitle = document.getElementById('showdown-title');
   const btnNextHand = document.getElementById('btn-next-hand');
   const btnCloseShowdown = document.getElementById('btn-close-showdown');
+  const dealerContainer = document.getElementById('dealer-container');
 
   // Action buttons
   const btnFold = document.getElementById('btn-fold');
@@ -46,6 +47,63 @@
   let timerInterval = null;
   let autoStartInterval = null;
   let isGameStarted = false;
+  let previousCurrentPlayerId = null;
+
+  // Sound notification function
+  function playTurnNotification() {
+    try {
+      // Use Web Audio API to generate a notification sound
+      const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioContext.createOscillator();
+      const gainNode = audioContext.createGain();
+
+      oscillator.connect(gainNode);
+      gainNode.connect(audioContext.destination);
+
+      // Create a pleasant notification tone (two beeps)
+      oscillator.frequency.value = 800;
+      oscillator.type = 'sine';
+
+      gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+      gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
+
+      oscillator.start(audioContext.currentTime);
+      oscillator.stop(audioContext.currentTime + 0.15);
+
+      // Second beep
+      setTimeout(() => {
+        const oscillator2 = audioContext.createOscillator();
+        const gainNode2 = audioContext.createGain();
+
+        oscillator2.connect(gainNode2);
+        gainNode2.connect(audioContext.destination);
+
+        oscillator2.frequency.value = 1000;
+        oscillator2.type = 'sine';
+
+        gainNode2.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode2.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.15);
+
+        oscillator2.start(audioContext.currentTime);
+        oscillator2.stop(audioContext.currentTime + 0.15);
+      }, 150);
+    } catch (e) {
+      console.error('Failed to play notification sound:', e);
+    }
+  }
+
+  // Dealer image display functions
+  function showDealer() {
+    if (dealerContainer) {
+      dealerContainer.classList.remove('hidden');
+    }
+  }
+
+  function hideDealer() {
+    if (dealerContainer) {
+      dealerContainer.classList.add('hidden');
+    }
+  }
 
   // --- Waiting Room ---
 
@@ -316,6 +374,23 @@
       waitingRoom.classList.add('hidden');
       gameView.classList.remove('hidden');
     }
+
+    // Check if it's now the user's turn and play notification sound
+    if (state.game && state.game.stage !== 'WAITING' && state.game.stage !== 'SHOWDOWN') {
+      const players = state.game.players || [];
+      if (state.game.currentPlayerIndex >= 0 && state.game.currentPlayerIndex < players.length) {
+        const currentPlayer = players[state.game.currentPlayerIndex];
+        const currentPlayerId = currentPlayer.id;
+
+        // Play sound if it's now the user's turn and it wasn't before
+        if (currentPlayerId === myId() && previousCurrentPlayerId !== currentPlayerId) {
+          playTurnNotification();
+        }
+
+        previousCurrentPlayerId = currentPlayerId;
+      }
+    }
+
     renderGame(state);
   });
 
@@ -346,6 +421,15 @@
       'RIVER': '河牌'
     };
     addLog('系统', `--- ${stageNames[data.stage] || data.stage} ---`);
+
+    // Show dealer image when dealing cards
+    if (data.stage === 'PREFLOP' || data.stage === 'FLOP' || data.stage === 'TURN' || data.stage === 'RIVER') {
+      showDealer();
+      // Hide dealer after 2.5 seconds
+      setTimeout(() => {
+        hideDealer();
+      }, 2500);
+    }
   });
 
   socket.on('game:showdown', (data) => {

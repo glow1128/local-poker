@@ -25,6 +25,23 @@
     <div class="hidden" id="game-view">
       <div class="status-message" id="status-message"></div>
 
+      <!-- Dealer Image -->
+      <div class="dealer-container hidden" id="dealer-container">
+        <img src="/images/dealer.jpg" alt="荷官" class="dealer-image" id="dealer-image"
+             onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">
+        <div class="dealer-placeholder" style="display:none; width:150px; height:200px; background:linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius:12px; border:3px solid var(--gold); justify-content:center; align-items:center; color:white; font-size:18px; font-weight:700; box-shadow:0 4px 20px rgba(0,0,0,0.5);">
+          👩‍💼<br>荷官
+        </div>
+        <div class="dealer-label">荷官发牌</div>
+      </div>
+      <!--
+        使用说明：请从以下网站下载免费的美女荷官图片并保存为 /public/images/dealer.jpg
+        推荐网站：
+        - https://www.freepik.com/free-photos-vectors/female-dealer-casino
+        - https://www.dreamstime.com/photos-images/female-casino-dealer.html
+        - https://pixabay.com/images/search/casino%20dealer/
+      -->
+
       <div class="table-area">
         <div class="poker-table" id="poker-table">
           <div class="community-cards" id="community-cards"></div>
@@ -68,6 +85,12 @@
       </div>
     </div>
   </div>
+
+  <!-- Audio elements -->
+  <audio id="turn-notification" preload="auto">
+    <!-- You can replace this with a downloaded MP3 file -->
+    <!-- For now, we'll use JavaScript Web Audio API to generate the sound -->
+  </audio>
 
   <script src="/socket.io/socket.io.js"></script>
   <script src="/js/socket.js"></script>
