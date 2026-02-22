@@ -1,22 +1,26 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const os = require('os');
+// Load environment variables from .env file (must be before any imports)
+// Only set if not already defined (allows command-line override)
 const path = require('path');
 const fs = require('fs');
-const { setupSocketHandlers } = require('./server/socketHandlers');
-
-// Load environment variables from .env file (manual, no dotenv dependency)
 const envPath = path.join(__dirname, '.env');
 if (fs.existsSync(envPath)) {
   const envLines = fs.readFileSync(envPath, 'utf8').split('\n');
   for (const line of envLines) {
     const match = line.match(/^([^=]+)=(.*)$/);
     if (match && !match[1].startsWith('#')) {
-      process.env[match[1].trim()] = match[2].trim();
+      const key = match[1].trim();
+      if (process.env[key] === undefined) {
+        process.env[key] = match[2].trim();
+      }
     }
   }
 }
+
+const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
+const os = require('os');
+const { setupSocketHandlers } = require('./server/socketHandlers');
 
 const app = express();
 const server = http.createServer(app);
