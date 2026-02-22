@@ -15,7 +15,9 @@
       "Bash(git remote add:*)",
       "Bash(git push:*)",
       "Bash(git remote set-url:*)",
-      "Bash(ssh:*)"
+      "Bash(ssh:*)",
+      "Bash(AI_LLM_LOG=1 npm start:*)",
+      "Bash(lsof:*)"
     ]
   }
 }

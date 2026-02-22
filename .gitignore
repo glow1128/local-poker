@@ -1,3 +1,11 @@
+# Node.js dependencies
 node_modules/
+
+# Dockerfile (use docker-compose instead)
 Dockerfile
+
+# Test results directory
 test-results/
+
+# AI configuration (contains API keys)
+server/ai/aiConfig.js

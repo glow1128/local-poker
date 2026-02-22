@@ -1,4 +1,5 @@
 const { PokerGame, STAGES } = require('./PokerGame');
+const { AI_ID_PREFIX } = require('../ai/AIPlayerManager');
 
 class Room {
   constructor(id, options = {}) {
@@ -11,6 +12,10 @@ class Room {
     this.bigBlind = options.bigBlind || 20;
     this.game = null;
     this.started = false;
+
+    // Pause state
+    this.paused = false;
+    this.pausedBy = null;
 
     // Disconnection tracking
     this.disconnectedPlayers = new Map(); // id -> { name, timeout }
@@ -33,7 +38,8 @@ class Room {
     }
 
     const seat = this._getNextSeat();
-    this.players.set(id, { id, name, socketId, seat });
+    const isAI = typeof id === 'string' && id.startsWith(AI_ID_PREFIX);
+    this.players.set(id, { id, name, socketId, seat, isAI });
 
     if (this.players.size === 1) {
       this.hostId = id;
@@ -117,10 +123,13 @@ class Room {
       initialChips: this.initialChips,
       smallBlind: this.smallBlind,
       bigBlind: this.bigBlind,
+      paused: this.paused,
+      pausedBy: this.pausedBy,
       players: Array.from(this.players.values()).map(p => ({
         id: p.id,
         name: p.name,
-        seat: p.seat
+        seat: p.seat,
+        isAI: p.isAI
       }))
     };
 
@@ -144,7 +153,21 @@ class Room {
   }
 
   isEmpty() {
-    return this.players.size === 0 && this.disconnectedPlayers.size === 0;
+    // A room with only AI players is considered empty
+    const humanPlayers = Array.from(this.players.values()).filter(p => !p.isAI);
+    return humanPlayers.length === 0 && this.disconnectedPlayers.size === 0;
+  }
+
+  /**
+   * Ensure host is never an AI player. Transfer to first human if needed.
+   */
+  ensureHumanHost() {
+    if (!this.hostId) return;
+    const host = this.players.get(this.hostId);
+    if (host && !host.isAI) return;
+    for (const [id, p] of this.players) {
+      if (!p.isAI) { this.hostId = id; return; }
+    }
   }
 }
 

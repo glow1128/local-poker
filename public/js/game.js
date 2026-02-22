@@ -45,6 +45,7 @@
   const playerList = document.getElementById('player-list');
   const btnStart = document.getElementById('btn-start');
   const btnLeaveWaiting = document.getElementById('btn-leave-waiting');
+  const btnAddAI = document.getElementById('btn-add-ai');
   const statusMessage = document.getElementById('status-message');
   const pokerTable = document.getElementById('poker-table');
   const communityCardsEl = document.getElementById('community-cards');
@@ -66,6 +67,7 @@
   const btnCall = document.getElementById('btn-call');
   const btnRaise = document.getElementById('btn-raise');
   const btnAllin = document.getElementById('btn-allin');
+  const btnPause = document.getElementById('btn-pause');
   const raiseControls = document.getElementById('raise-controls');
   const raiseSlider = document.getElementById('raise-slider');
   const raiseInput = document.getElementById('raise-input');
@@ -75,6 +77,26 @@
   let timerInterval = null;
   let autoStartInterval = null;
   let isGameStarted = false;
+  let isGamePaused = false;
+
+  /**
+   * Helper function to bind button actions with common pattern.
+   * @param {HTMLButtonElement} btn - Button element
+   * @param {string} eventName - Socket event name
+   * @param {object} data - Event data
+   * @param {function} onSuccess - Success callback
+   */
+  function bindButtonAction(btn, eventName, data, onSuccess) {
+    btn.disabled = true;
+    socket.emit(eventName, data, (res) => {
+      btn.disabled = false;
+      if (!res.success) {
+        alert(res.error);
+      } else if (onSuccess) {
+        onSuccess(res);
+      }
+    });
+  }
 
   // --- Waiting Room ---
 
@@ -82,7 +104,10 @@
     roomIdDisplay.textContent = state.id;
     playerList.innerHTML = '';
 
+    let aiCount = 0;
     for (const p of state.players) {
+      if (p.isAI) aiCount++;
+
       const li = document.createElement('li');
       li.textContent = p.name;
       if (p.id === state.hostId) {
@@ -90,6 +115,26 @@
         badge.className = 'host-badge';
         badge.textContent = '房主';
         li.appendChild(badge);
+      }
+      if (p.isAI) {
+        const badge = document.createElement('span');
+        badge.className = 'ai-badge';
+        badge.textContent = 'AI';
+        li.appendChild(badge);
+        // Remove button for host
+        if (state.hostId === myId()) {
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'btn-remove-ai';
+          removeBtn.textContent = '移除';
+          removeBtn.addEventListener('click', () => {
+            removeBtn.disabled = true;
+            socket.emit('room:removeAI', { aiPlayerId: p.id }, (res) => {
+              removeBtn.disabled = false;
+              if (!res.success) alert(res.error);
+            });
+          });
+          li.appendChild(removeBtn);
+        }
       }
       playerList.appendChild(li);
     }
@@ -99,6 +144,13 @@
       btnStart.classList.remove('hidden');
     } else {
       btnStart.classList.add('hidden');
+    }
+
+    // Show add-AI button for host, max 2 AI
+    if (state.hostId === myId() && aiCount < 2 && !state.started) {
+      btnAddAI.classList.remove('hidden');
+    } else {
+      btnAddAI.classList.add('hidden');
     }
   }
 
@@ -194,10 +246,21 @@
   function updateActions(game) {
     if (!game.availableActions) {
       actionBar.classList.add('hidden');
+      btnPause.classList.add('hidden');
       return;
     }
 
     actionBar.classList.remove('hidden');
+
+    // Show pause button only if it's my turn
+    const isMyTurn = game.currentPlayerIndex >= 0 &&
+                     game.players[game.currentPlayerIndex]?.id === myId();
+
+    if (isMyTurn) {
+      btnPause.classList.remove('hidden');
+    } else {
+      btnPause.classList.add('hidden');
+    }
 
     // Reset
     btnCheck.classList.add('hidden');
@@ -239,19 +302,17 @@
   // --- Event Handlers ---
 
   btnStart.addEventListener('click', () => {
-    btnStart.disabled = true;
-    socket.emit('room:start', {}, (res) => {
-      btnStart.disabled = false;
-      if (!res.success) {
-        alert(res.error);
-      }
-    });
+    bindButtonAction(btnStart, 'room:start', {});
   });
 
   btnLeaveWaiting.addEventListener('click', () => {
     socket.emit('room:leave');
     socketClient.clearSession();
     window.location.href = '/';
+  });
+
+  btnAddAI.addEventListener('click', () => {
+    bindButtonAction(btnAddAI, 'room:addAI', {});
   });
 
   btnFold.addEventListener('click', () => {
@@ -293,15 +354,9 @@
   }
 
   btnNextHand.addEventListener('click', () => {
-    btnNextHand.disabled = true;
     clearAutoStartTimer();
-    socket.emit('game:nextHand', {}, (res) => {
-      btnNextHand.disabled = false;
-      if (!res.success) {
-        alert(res.error);
-      } else {
-        showdownOverlay.classList.add('hidden');
-      }
+    bindButtonAction(btnNextHand, 'game:nextHand', {}, (res) => {
+      showdownOverlay.classList.add('hidden');
     });
   });
 
@@ -309,7 +364,25 @@
     showdownOverlay.classList.add('hidden');
   });
 
+  btnPause.addEventListener('click', () => {
+    const action = isGamePaused ? 'resume' : 'pause';
+    socket.emit('game:pause', { action }, (res) => {
+      if (!res.success) {
+        alert(res.error);
+      }
+    });
+  });
+
   function sendAction(action, amount) {
+    // Prevent action if game is paused
+    if (isGamePaused) {
+      alert('游戏已暂停，请先恢复');
+      return;
+    }
+
+    // FIX: Clear timer immediately when sending action
+    clearTimer();
+
     actionBar.classList.add('hidden');
     socket.emit('game:action', { action, amount }, (res) => {
       if (!res.success) {
@@ -409,6 +482,27 @@
     startAutoStartTimer(data.seconds);
   });
 
+  socket.on('game:paused', (data) => {
+    isGamePaused = data.paused;
+
+    if (data.paused) {
+      timerFill.classList.add('paused');
+      timerText.classList.add('paused');
+      timerText.textContent = '已暂停';
+      btnPause.textContent = '恢复';
+      btnPause.classList.add('is-paused');
+      document.querySelector('.game-container').classList.add('is-paused');
+      addLog('系统', `游戏已暂停 (${data.pausedBy})`);
+    } else {
+      timerFill.classList.remove('paused');
+      timerText.classList.remove('paused');
+      btnPause.textContent = '暂停';
+      btnPause.classList.remove('is-paused');
+      document.querySelector('.game-container').classList.remove('is-paused');
+      addLog('系统', '游戏已恢复');
+    }
+  });
+
   socket.on('room:playerDisconnected', (data) => {
     addLog('系统', `${data.playerName} 断开连接`);
   });
@@ -423,11 +517,16 @@
     clearTimer();
     const start = Date.now();
     timerFill.style.width = '100%';
-    timerFill.classList.remove('warning');
+    timerFill.classList.remove('warning', 'paused');
     timerText.textContent = Math.ceil(timeout / 1000) + 's';
-    timerText.classList.remove('warning');
+    timerText.classList.remove('warning', 'paused');
 
     timerInterval = setInterval(() => {
+      // Skip countdown if paused
+      if (isGamePaused) {
+        return;
+      }
+
       const elapsed = Date.now() - start;
       const timeLeft = Math.max(0, timeout - elapsed);
       const remaining = timeLeft / timeout;
@@ -451,8 +550,9 @@
       timerInterval = null;
     }
     timerFill.style.width = '0%';
+    timerFill.classList.remove('warning', 'paused');
     timerText.textContent = '';
-    timerText.classList.remove('warning');
+    timerText.classList.remove('warning', 'paused');
   }
 
   function startAutoStartTimer(seconds) {
@@ -471,10 +571,7 @@
         // Show countdown message
         let countdownEl = document.createElement('div');
         countdownEl.id = 'auto-start-countdown';
-        countdownEl.className = 'auto-start-countdown'; // Add class for styling if needed
-        countdownEl.style.marginTop = '15px';
-        countdownEl.style.fontSize = '1.2em';
-        countdownEl.style.color = '#ffd700'; // Gold color
+        countdownEl.className = 'auto-start-countdown';
 
         const panel = document.querySelector('.showdown-panel');
         // Insert before buttons or at the end
