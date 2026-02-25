@@ -84,6 +84,13 @@
   let autoStartInterval = null;
   let isGameStarted = false;
   let isGamePaused = false;
+  let lastHandHistory = null;
+  let lastShowdownData = null;
+
+  // Hand history tracking for review
+  let currentHandHistory = null;
+  let lastShowdownData = null;
+  const gtoAnalysisCache = new Map(); // handNumber -> analysis
 
   /**
    * Helper function to bind button actions with common pattern.
@@ -412,12 +419,31 @@
 
   socket.on('game:started', (state) => {
     isGameStarted = true;
+    lastHandHistory = null;
+    lastShowdownData = null;
     clearAutoStartTimer();
     waitingRoom.classList.add('hidden');
     gameView.classList.remove('hidden');
     showdownOverlay.classList.add('hidden');
     gameLog.innerHTML = '';
     addLog('系统', `第 ${state.game.handNumber} 局开始`);
+
+    // Initialize hand history for this hand
+    currentHandHistory = {
+      handNumber: state.game.handNumber,
+      players: state.game.players.map(p => ({
+        id: p.id,
+        name: p.name,
+        chips: p.chips,
+        position: p.seat
+      })),
+      smallBlind: state.game.smallBlind,
+      bigBlind: state.game.bigBlind,
+      actions: { PRE_FLOP: [], FLOP: [], TURN: [], RIVER: [] },
+      communityCards: [],
+      currentStage: 'PRE_FLOP'
+    };
+
     renderGame(state);
   });
 
@@ -448,6 +474,19 @@
       msg += ` $${data.amount}`;
     }
     addLog(data.playerName, msg);
+
+    // Track action in hand history
+    if (currentHandHistory) {
+      const stage = currentHandHistory.currentStage;
+      if (currentHandHistory.actions[stage]) {
+        currentHandHistory.actions[stage].push({
+          playerName: data.playerName,
+          playerId: data.playerId,
+          action: data.action,
+          amount: data.amount || null
+        });
+      }
+    }
   });
 
   socket.on('game:stageChange', (data) => {
@@ -457,9 +496,32 @@
       'RIVER': '河牌'
     };
     addLog('系统', `--- ${stageNames[data.stage] || data.stage} ---`);
+
+    // Track stage change in hand history
+    if (currentHandHistory) {
+      currentHandHistory.currentStage = data.stage;
+      if (data.communityCards) {
+        currentHandHistory.communityCards = data.communityCards;
+      }
+    }
   });
 
   socket.on('game:showdown', (data) => {
+    lastShowdownData = data;
+    lastHandHistory = data.handHistory || null;
+
+    // Finalize hand history with showdown data
+    if (currentHandHistory) {
+      if (data.communityCards) {
+        currentHandHistory.communityCards = data.communityCards;
+      }
+      if (data.playerHands) {
+        currentHandHistory.playerHands = data.playerHands;
+      }
+      currentHandHistory.results = data.results;
+      currentHandHistory.foldWin = !!data.foldWin;
+    }
+
     showShowdown(data);
   });
 
@@ -887,6 +949,15 @@
       }
     }
 
+    // Show review button if hand history is available
+    if (lastHandHistory) {
+      const reviewBtn = document.createElement('button');
+      reviewBtn.className = 'btn btn-review';
+      reviewBtn.textContent = '复盘';
+      reviewBtn.addEventListener('click', () => showHandReview(lastHandHistory));
+      showdownResults.appendChild(reviewBtn);
+    }
+
     // Show next hand button for host
     if (currentState && currentState.hostId === myId()) {
       btnNextHand.classList.remove('hidden');
@@ -894,6 +965,346 @@
       btnNextHand.classList.add('hidden');
     }
     btnCloseShowdown.classList.remove('hidden');
+
+    // Add review button (only if we have action history)
+    const existingReviewBtn = document.getElementById('btn-hand-review');
+    if (existingReviewBtn) existingReviewBtn.remove();
+
+    if (currentHandHistory && !data.foldWin) {
+      const hasActions = Object.values(currentHandHistory.actions).some(a => a.length > 0);
+      if (hasActions) {
+        const reviewBtn = document.createElement('button');
+        reviewBtn.id = 'btn-hand-review';
+        reviewBtn.className = 'btn-secondary btn-review';
+        reviewBtn.textContent = '复盘';
+        reviewBtn.addEventListener('click', () => {
+          showHandReview(currentHandHistory);
+        });
+        const panel = document.querySelector('.showdown-panel');
+        panel.appendChild(reviewBtn);
+      }
+    }
+  }
+
+  // --- Hand Review ---
+
+  function showHandReview(history, analysis) {
+    const stageNames = {
+      'PRE_FLOP': '翻牌前',
+      'FLOP': '翻牌',
+      'TURN': '转牌',
+      'RIVER': '河牌'
+    };
+
+    const actionNames = {
+      fold: '弃牌', check: '过牌', call: '跟注',
+      raise: '加注到', allin: '全下'
+    };
+
+    showdownOverlay.classList.remove('hidden');
+    showdownTitle.textContent = '复盘分析';
+    showdownResults.innerHTML = '';
+
+    // Community cards
+    if (history.communityCards && history.communityCards.length > 0) {
+      const communityDiv = document.createElement('div');
+      communityDiv.className = 'showdown-community';
+      communityDiv.innerHTML = '<div class="showdown-community-label">公共牌</div>';
+      const cardsRow = document.createElement('div');
+      cardsRow.className = 'showdown-community-cards';
+      for (const card of history.communityCards) {
+        cardsRow.appendChild(createCardElement(card, { small: true }));
+      }
+      communityDiv.appendChild(cardsRow);
+      showdownResults.appendChild(communityDiv);
+    }
+
+    // Player hands
+    if (history.playerHands && history.playerHands.length > 0) {
+      const handsDiv = document.createElement('div');
+      handsDiv.className = 'review-hands';
+      for (const ph of history.playerHands) {
+        if (!ph.hand || ph.hand.length === 0) continue;
+        const row = document.createElement('div');
+        row.className = 'review-hand-row';
+        row.innerHTML = `<span class="review-player-name">${ph.name}</span>`;
+        const cardsSpan = document.createElement('span');
+        cardsSpan.className = 'review-hand-cards';
+        for (const card of ph.hand) {
+          cardsSpan.appendChild(createCardElement(card, { small: true }));
+        }
+        row.appendChild(cardsSpan);
+        if (ph.bestHand) {
+          const label = document.createElement('span');
+          label.className = 'review-hand-label';
+          label.textContent = ph.bestHand;
+          row.appendChild(label);
+        }
+        handsDiv.appendChild(row);
+      }
+      showdownResults.appendChild(handsDiv);
+    }
+
+    // Actions by stage
+    const stages = ['PRE_FLOP', 'FLOP', 'TURN', 'RIVER'];
+    for (const stage of stages) {
+      const actions = history.actions[stage];
+      if (!actions || actions.length === 0) continue;
+
+      const stageDiv = document.createElement('div');
+      stageDiv.className = 'review-stage';
+
+      const stageHeader = document.createElement('div');
+      stageHeader.className = 'review-stage-header';
+      stageHeader.textContent = stageNames[stage];
+      stageDiv.appendChild(stageHeader);
+
+      actions.forEach((act, idx) => {
+        const row = document.createElement('div');
+        row.className = 'review-action-row';
+
+        let actionText = actionNames[act.action] || act.action;
+        if (act.amount) actionText += ` $${act.amount}`;
+
+        row.innerHTML = `<span class="review-action-player">${act.playerName}</span>` +
+          `<span class="review-action-text">${actionText}</span>`;
+
+        // GTO annotation
+        if (analysis) {
+          const match = analysis.actions.find(a => a.stage === stage && a.index === idx);
+          if (match) {
+            const annotation = document.createElement('span');
+            annotation.className = 'gto-annotation';
+
+            const badge = document.createElement('span');
+            badge.className = `gto-badge gto-${match.rating}`;
+            badge.textContent = match.rating === 'good' ? '合理' :
+              match.rating === 'questionable' ? '可疑' : '失误';
+
+            const tooltip = document.createElement('div');
+            tooltip.className = 'gto-tooltip';
+            tooltip.innerHTML = `<div class="gto-explanation">${match.explanation}</div>`;
+            if (match.suggestion) {
+              tooltip.innerHTML += `<div class="gto-suggestion">建议: ${match.suggestion}</div>`;
+            }
+
+            annotation.appendChild(badge);
+            annotation.appendChild(tooltip);
+            row.appendChild(annotation);
+          }
+        }
+
+        stageDiv.appendChild(row);
+      });
+
+      showdownResults.appendChild(stageDiv);
+    }
+
+    // Results summary
+    if (history.results && history.results.length > 0) {
+      const resultsDiv = document.createElement('div');
+      resultsDiv.className = 'review-results';
+      resultsDiv.innerHTML = '<div class="review-stage-header">结果</div>';
+      for (const r of history.results) {
+        const row = document.createElement('div');
+        row.className = 'review-result-row';
+        row.innerHTML = `<span class="review-action-player">${r.player.name}</span>` +
+          `<span class="review-result-amount">赢得 $${r.amount}</span>`;
+        if (r.hand) {
+          row.innerHTML += `<span class="review-hand-label">${r.hand}</span>`;
+        }
+        resultsDiv.appendChild(row);
+      }
+      showdownResults.appendChild(resultsDiv);
+    }
+
+    // GTO summary
+    if (analysis && analysis.summary) {
+      const summaryDiv = document.createElement('div');
+      summaryDiv.className = 'gto-summary-section';
+      summaryDiv.innerHTML = `<div class="gto-summary-label">AI 分析总结</div>` +
+        `<div class="gto-summary-text">${analysis.summary}</div>`;
+      showdownResults.appendChild(summaryDiv);
+    }
+
+    // Bottom buttons
+    const actionsDiv = document.createElement('div');
+    actionsDiv.className = 'review-actions';
+
+    // Back button
+    const backBtn = document.createElement('button');
+    backBtn.className = 'btn-secondary';
+    backBtn.textContent = '返回';
+    backBtn.addEventListener('click', () => {
+      if (lastShowdownData) {
+        showShowdown(lastShowdownData);
+      } else {
+        showdownOverlay.classList.add('hidden');
+      }
+    });
+    actionsDiv.appendChild(backBtn);
+
+    // AI analysis button (only if no analysis yet)
+    if (!analysis) {
+      const aiBtn = document.createElement('button');
+      aiBtn.className = 'btn-ai-analysis';
+      aiBtn.textContent = 'AI分析';
+      aiBtn.addEventListener('click', () => {
+        requestGTOAnalysis(history, aiBtn);
+      });
+      actionsDiv.appendChild(aiBtn);
+    }
+
+    showdownResults.appendChild(actionsDiv);
+
+    // Hide default showdown buttons
+    btnNextHand.classList.add('hidden');
+    btnCloseShowdown.classList.add('hidden');
+  }
+
+  function requestGTOAnalysis(history, button) {
+    const handNum = history.handNumber;
+
+    // Check cache
+    const cached = gtoAnalysisCache.get(handNum);
+    if (cached) {
+      showHandReview(history, cached);
+      return;
+    }
+
+    // Show loading state
+    button.disabled = true;
+    button.innerHTML = '<span class="gto-spinner"></span> AI分析中...';
+    button.classList.add('gto-loading');
+
+    socket.emit('game:requestReview', { handHistory: history }, (res) => {
+      button.disabled = false;
+      button.textContent = 'AI分析';
+      button.classList.remove('gto-loading');
+
+      if (res.success && res.analysis) {
+        gtoAnalysisCache.set(handNum, res.analysis);
+        showHandReview(history, res.analysis);
+      } else {
+        alert(res.error || 'AI分析失败');
+      }
+    });
+  }
+
+  function showHandReview(history) {
+    showdownOverlay.classList.remove('hidden');
+    showdownTitle.textContent = `第 ${history.handNumber} 局复盘`;
+    showdownResults.innerHTML = '';
+    btnNextHand.classList.add('hidden');
+    btnCloseShowdown.classList.add('hidden');
+
+    const actionNames = {
+      fold: '弃牌', check: '过牌', call: '跟注',
+      raise: '加注到', allin: '全下'
+    };
+    const stageNames = {
+      PRE_FLOP: '翻牌前', FLOP: '翻牌', TURN: '转牌', RIVER: '河牌'
+    };
+    const winnerIds = new Set((history.results || []).map(r => r.playerId));
+
+    // Section 1: All player hands
+    const handsSection = document.createElement('div');
+    handsSection.className = 'review-section';
+    handsSection.innerHTML = '<div class="review-section-title">所有玩家手牌</div>';
+
+    for (const p of history.players) {
+      const row = document.createElement('div');
+      row.className = 'review-player-row';
+
+      let roleTag = '';
+      if (p.isDealer) roleTag += ' <span class="review-role-badge badge-dealer">D</span>';
+      if (p.isSB) roleTag += ' <span class="review-role-badge badge-sb">SB</span>';
+      if (p.isBB) roleTag += ' <span class="review-role-badge badge-bb">BB</span>';
+
+      const nameDiv = document.createElement('div');
+      nameDiv.className = 'review-player-name';
+      nameDiv.innerHTML = p.name + roleTag;
+      row.appendChild(nameDiv);
+
+      const cardsDiv = document.createElement('div');
+      cardsDiv.className = 'review-player-cards';
+      for (const card of p.hand) {
+        cardsDiv.appendChild(createCardElement(card, { small: true }));
+      }
+      row.appendChild(cardsDiv);
+
+      if (winnerIds.has(p.id)) {
+        const badge = document.createElement('span');
+        badge.className = 'review-winner-badge';
+        badge.textContent = '赢家';
+        row.appendChild(badge);
+      }
+
+      handsSection.appendChild(row);
+    }
+    showdownResults.appendChild(handsSection);
+
+    // Section 2: Actions by stage
+    const stages = ['PRE_FLOP', 'FLOP', 'TURN', 'RIVER'];
+    for (const stage of stages) {
+      const actions = history.actions[stage];
+      if (!actions || actions.length === 0) continue;
+
+      const section = document.createElement('div');
+      section.className = 'review-section';
+      section.innerHTML = `<div class="review-section-title">${stageNames[stage]}</div>`;
+
+      // Show community cards for this stage
+      const cc = history.communityCards[stage];
+      if (cc && cc.length > 0) {
+        const ccDiv = document.createElement('div');
+        ccDiv.className = 'review-community-cards';
+        for (const card of cc) {
+          ccDiv.appendChild(createCardElement(card, { small: true }));
+        }
+        section.appendChild(ccDiv);
+      }
+
+      const list = document.createElement('div');
+      list.className = 'review-actions-list';
+      for (const a of actions) {
+        const item = document.createElement('div');
+        item.className = 'review-action';
+        let text = actionNames[a.action] || a.action;
+        if (a.amount !== undefined && a.action !== 'fold' && a.action !== 'check') {
+          text += ` $${a.amount}`;
+        }
+        item.innerHTML = `<span class="review-action-name">${a.playerName}</span> <span class="review-action-text">${text}</span>`;
+        list.appendChild(item);
+      }
+      section.appendChild(list);
+      showdownResults.appendChild(section);
+    }
+
+    // Section 3: Results
+    if (history.results && history.results.length > 0) {
+      const resultSection = document.createElement('div');
+      resultSection.className = 'review-section';
+      resultSection.innerHTML = '<div class="review-section-title">结果</div>';
+      for (const r of history.results) {
+        const row = document.createElement('div');
+        row.className = 'review-result';
+        let text = `${r.playerName} 赢得 $${r.amount}`;
+        if (r.hand) text += ` (${r.hand})`;
+        row.textContent = text;
+        resultSection.appendChild(row);
+      }
+      showdownResults.appendChild(resultSection);
+    }
+
+    // Back button
+    const backBtn = document.createElement('button');
+    backBtn.className = 'btn btn-review-back';
+    backBtn.textContent = '返回';
+    backBtn.addEventListener('click', () => {
+      if (lastShowdownData) showShowdown(lastShowdownData);
+    });
+    showdownResults.appendChild(backBtn);
   }
 
   // --- Log ---

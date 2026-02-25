@@ -1,5 +1,6 @@
 const { RoomManager } = require('./RoomManager');
 const { aiPlayerManager } = require('./ai/AIPlayerManager');
+const { analyzeHand } = require('./ai/gtoAnalyzer');
 
 const roomManager = new RoomManager();
 
@@ -250,6 +251,30 @@ function setupSocketHandlers(io) {
       callback({ success: true });
     });
 
+    socket.on('game:requestReview', async (data, callback) => {
+      const info = socketToPlayer.get(socket.id);
+      if (!info) return callback({ success: false, error: '未加入房间' });
+
+      const room = roomManager.getRoom(info.roomId);
+      if (!room) return callback({ success: false, error: '房间不存在' });
+
+      if (!data || !data.handHistory) {
+        return callback({ success: false, error: '缺少牌局数据' });
+      }
+
+      try {
+        const analysis = await analyzeHand(data.handHistory);
+        if (analysis) {
+          callback({ success: true, analysis });
+        } else {
+          callback({ success: false, error: 'AI分析不可用，请确认AI已配置' });
+        }
+      } catch (err) {
+        console.log('[GTO] Request review error:', err.message);
+        callback({ success: false, error: 'AI分析失败，请稍后重试' });
+      }
+    });
+
     socket.on('game:pause', (data, callback) => {
       const info = socketToPlayer.get(socket.id);
       if (!info) return callback({ success: false, error: '未加入房间' });
@@ -380,7 +405,8 @@ function setupGameCallbacks(room, io) {
       results: showdownData.results.map(r => ({
         ...r,
         bestCards: r.bestCards ? r.bestCards.map(c => c.toJSON()) : null
-      }))
+      })),
+      handHistory: showdownData.handHistory || null
     };
 
     io.to(room.id).emit('game:showdown', data);
