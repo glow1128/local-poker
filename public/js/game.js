@@ -61,6 +61,12 @@
   const btnNextHand = document.getElementById('btn-next-hand');
   const btnCloseShowdown = document.getElementById('btn-close-showdown');
 
+  // Chat elements
+  const chatMessages = document.getElementById('chat-messages');
+  const chatInput = document.getElementById('chat-input');
+  const btnSendChat = document.getElementById('btn-send-chat');
+
+
   // Action buttons
   const btnFold = document.getElementById('btn-fold');
   const btnCheck = document.getElementById('btn-check');
@@ -510,6 +516,99 @@
   socket.on('room:playerLeft', (data) => {
     addLog('系统', `${data.playerName} 离开了房间`);
   });
+
+  // --- Chat Events ---
+
+  socket.on('chat:message', (data) => {
+    addChatMessage(data);
+  });
+
+  function formatChatTime(timestamp) {
+    const date = new Date(typeof timestamp === 'number' ? timestamp : Date.now());
+    if (Number.isNaN(date.getTime())) return '';
+    return date.toLocaleTimeString('zh-CN', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  }
+
+  function addChatMessage(data) {
+    const { playerId, playerName, message, isAI, timestamp } = data;
+    if (!message) return;
+
+    const isMe = playerId === myId();
+    const entry = document.createElement('div');
+    entry.className = 'chat-message';
+    if (isMe) {
+      entry.classList.add('is-me');
+    }
+    if (isAI) {
+      entry.classList.add('chat-ai');
+    }
+
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-bubble';
+
+    const meta = document.createElement('div');
+    meta.className = 'chat-meta';
+
+    const nameEl = document.createElement('span');
+    nameEl.className = `chat-name ${isAI ? 'ai' : ''}`.trim();
+    nameEl.textContent = playerName || '未知玩家';
+
+    const timeEl = document.createElement('span');
+    timeEl.className = 'chat-time';
+    timeEl.textContent = formatChatTime(timestamp);
+
+    const textEl = document.createElement('div');
+    textEl.className = 'chat-text';
+    textEl.textContent = message;
+
+    meta.appendChild(nameEl);
+    meta.appendChild(timeEl);
+    bubble.appendChild(meta);
+    bubble.appendChild(textEl);
+    entry.appendChild(bubble);
+
+    chatMessages.appendChild(entry);
+
+    if (typeof chatMessages.scrollTo === 'function') {
+      chatMessages.scrollTo({
+        top: chatMessages.scrollHeight,
+        behavior: 'smooth'
+      });
+    } else {
+      chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    // Keep max 50 messages
+    while (chatMessages.children.length > 50) {
+      chatMessages.removeChild(chatMessages.firstChild);
+    }
+  }
+
+  function sendChatMessage() {
+    const message = chatInput.value.trim();
+    if (!message) return;
+
+    socket.emit('chat:send', { message }, (res) => {
+      if (res && !res.success) {
+        alert(res.error || '发送失败');
+      }
+    });
+
+    chatInput.value = '';
+  }
+
+  btnSendChat.addEventListener('click', sendChatMessage);
+
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      sendChatMessage();
+    }
+  });
+
 
   // --- Timer ---
 

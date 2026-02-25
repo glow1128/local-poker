@@ -38,30 +38,58 @@
       </div>
 
       <div class="bottom-controls">
-        <div class="my-hand-area" id="my-hand"></div>
-        <div class="timer-bar" id="timer-bar">
-          <div class="timer-bar-fill" id="timer-fill"></div>
-        </div>
-        <div class="timer-text" id="timer-text"></div>
+        <div class="action-center">
+          <div class="my-hand-area" id="my-hand"></div>
 
-        <div class="action-bar hidden" id="action-bar">
-          <button class="btn-fold" id="btn-fold">弃牌</button>
-          <button class="btn-check hidden" id="btn-check">过牌</button>
-          <button class="btn-call hidden" id="btn-call">跟注</button>
-
-          <div id="raise-controls" class="raise-controls hidden">
-            <span class="raise-amount" id="raise-amount">0</span>
-            <input type="range" id="raise-slider" min="0" max="0" value="0">
-            <input type="number" id="raise-input" class="raise-input" value="0">
-            <button class="btn-raise hidden" id="btn-raise">加注</button>
+          <div class="timer-cluster">
+            <div class="timer-bar" id="timer-bar">
+              <div class="timer-bar-fill" id="timer-fill"></div>
+            </div>
+            <div class="timer-text" id="timer-text"></div>
           </div>
 
-          <button class="btn-allin hidden" id="btn-allin">全下</button>
-          <button class="btn-pause hidden" id="btn-pause">暂停</button>
+          <div class="action-bar hidden" id="action-bar">
+            <div class="action-row action-row-main">
+              <button class="btn-fold" id="btn-fold">弃牌</button>
+              <button class="btn-check hidden" id="btn-check">过牌</button>
+              <button class="btn-call hidden" id="btn-call">跟注</button>
+              <button class="btn-allin hidden" id="btn-allin">全下</button>
+              <button class="btn-pause hidden" id="btn-pause">暂停</button>
+            </div>
+
+            <div class="action-row action-row-raise">
+              <div id="raise-controls" class="raise-controls hidden">
+                <span class="raise-amount" id="raise-amount">0</span>
+                <input type="range" id="raise-slider" min="0" max="0" value="0">
+                <input type="number" id="raise-input" class="raise-input" value="0">
+                <button class="btn-raise hidden" id="btn-raise">加注</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="game-log" id="game-log"></div>
+      <aside class="comms-dock" id="comms-dock">
+        <section class="chat-container" id="chat-container">
+          <header class="comms-header">
+            <div class="comms-kicker">TABLE TALK</div>
+            <h3 class="comms-title">高桌私语</h3>
+          </header>
+          <div class="chat-messages" id="chat-messages"></div>
+          <div class="chat-input-area">
+            <input type="text" id="chat-input" class="chat-input" placeholder="输入消息..." maxlength="100">
+            <button class="btn-send-chat" id="btn-send-chat">发送</button>
+          </div>
+        </section>
+
+        <section class="game-log-panel" id="game-log-panel">
+          <header class="comms-header comms-header-log">
+            <div class="comms-kicker">GAME LOG</div>
+            <h3 class="comms-title">牌局记录</h3>
+          </header>
+          <div class="game-log" id="game-log"></div>
+        </section>
+      </aside>
     </div>
 
     <!-- Showdown Overlay -->
