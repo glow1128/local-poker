@@ -26,6 +26,7 @@ class PokerGame {
     this.lastRaiseSize = 0;
     this.handNumber = 0;
     this.winners = null;       // set after showdown
+    this.handHistory = null;   // recorded each hand for post-game review
 
     // Callbacks — set by Room
     this.onStateChange = null;
@@ -138,6 +139,21 @@ class PokerGame {
 
     this.stage = STAGES.PRE_FLOP;
 
+    // Initialize hand history for post-game review
+    this.handHistory = {
+      handNumber: this.handNumber,
+      players: inHand.map(p => ({
+        id: p.id, name: p.name, seat: p.seat,
+        chips: p.chips + p.totalBet,  // chips before blinds
+        hand: p.hand.map(c => c.toJSON()),
+        isDealer: this.players.indexOf(p) === this.dealerIndex,
+        isSB: p._isSB, isBB: p._isBB
+      })),
+      actions: { PRE_FLOP: [], FLOP: [], TURN: [], RIVER: [] },
+      communityCards: { FLOP: [], TURN: [], RIVER: [] },
+      results: null
+    };
+
     // Set first to act: left of BB (or SB in heads-up)
     if (numPlayers === 2) {
       // Heads up: dealer/SB acts first pre-flop
@@ -195,6 +211,7 @@ class PokerGame {
     if (this.onPlayerAction) {
       this.onPlayerAction(player, 'fold');
     }
+    this._recordAction(player, 'fold');
 
     // Check if only one player left
     const active = this.getActivePlayers();
@@ -216,6 +233,7 @@ class PokerGame {
     if (this.onPlayerAction) {
       this.onPlayerAction(player, 'check');
     }
+    this._recordAction(player, 'check');
 
     this._advanceAction();
     return { success: true };
@@ -240,6 +258,7 @@ class PokerGame {
     if (this.onPlayerAction) {
       this.onPlayerAction(player, 'call', callAmount);
     }
+    this._recordAction(player, 'call', callAmount);
 
     this._advanceAction();
     return { success: true };
@@ -286,6 +305,7 @@ class PokerGame {
     if (this.onPlayerAction) {
       this.onPlayerAction(player, 'raise', raiseTo);
     }
+    this._recordAction(player, 'raise', raiseTo);
 
     this._advanceAction();
     return { success: true };
@@ -321,6 +341,7 @@ class PokerGame {
     if (this.onPlayerAction) {
       this.onPlayerAction(player, 'allin', allInAmount);
     }
+    this._recordAction(player, 'allin', allInAmount);
 
     // Check if only one active non-allin player or fewer
     const active = this.getActivePlayers();
@@ -331,6 +352,14 @@ class PokerGame {
 
     this._advanceAction();
     return { success: true };
+  }
+
+  _recordAction(player, action, amount) {
+    if (!this.handHistory) return;
+    const entry = { playerId: player.id, playerName: player.name, action };
+    if (amount !== undefined) entry.amount = amount;
+    const stageActions = this.handHistory.actions[this.stage];
+    if (stageActions) stageActions.push(entry);
   }
 
   _advanceAction() {
@@ -392,16 +421,19 @@ class PokerGame {
         this.stage = STAGES.FLOP;
         this.deck.burn();
         this.communityCards.push(...this.deck.deal(3));
+        if (this.handHistory) this.handHistory.communityCards.FLOP = this.communityCards.slice(0, 3).map(c => c.toJSON());
         break;
       case STAGES.FLOP:
         this.stage = STAGES.TURN;
         this.deck.burn();
         this.communityCards.push(this.deck.deal());
+        if (this.handHistory) this.handHistory.communityCards.TURN = [this.communityCards[3].toJSON()];
         break;
       case STAGES.TURN:
         this.stage = STAGES.RIVER;
         this.deck.burn();
         this.communityCards.push(this.deck.deal());
+        if (this.handHistory) this.handHistory.communityCards.RIVER = [this.communityCards[4].toJSON()];
         break;
       case STAGES.RIVER:
         this._showdown();
@@ -497,6 +529,15 @@ class PokerGame {
       pots
     };
 
+    // Record results to hand history
+    if (this.handHistory) {
+      this.handHistory.results = results.map(r => ({
+        playerId: r.player.id, playerName: r.player.name,
+        amount: r.amount, hand: r.hand
+      }));
+      showdownData.handHistory = this.handHistory;
+    }
+
     this.winners = results;
 
     if (this.onShowdown) this.onShowdown(showdownData);
@@ -564,13 +605,22 @@ class PokerGame {
 
     this.winners = results;
 
+    // Record results to hand history
+    if (this.handHistory) {
+      this.handHistory.results = results.map(r => ({
+        playerId: r.player.id, playerName: r.player.name,
+        amount: r.amount, hand: r.hand
+      }));
+    }
+
     if (this.onShowdown) {
       this.onShowdown({
         results,
         playerHands: [],
         communityCards: this.communityCards,
         pots: [{ amount: this.pot, eligible: [winner] }],
-        foldWin: true
+        foldWin: true,
+        handHistory: this.handHistory || null
       });
     }
     if (this.onHandComplete) this.onHandComplete();
