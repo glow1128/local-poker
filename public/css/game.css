@@ -1197,3 +1197,65 @@
     display: none;
   }
 }
+
+/* ===== Layout Fixes for Better Centering ===== */
+
+/* Ensure table-area doesn't consume too much vertical space */
+.table-area {
+  flex: 0 1 auto !important;
+  min-height: 0;
+  overflow: visible;
+}
+
+/* Improve bottom-controls layout for better centering */
+.bottom-controls {
+  flex-direction: row;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 20px;
+}
+
+/* Chat container should not push other elements too much */
+.chat-container {
+  flex: 0 0 300px !important;
+  max-height: 280px;
+}
+
+/* My hand area should be centered */
+.my-hand-area {
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+/* Timer and chat should align properly */
+.timer-bar {
+  flex-shrink: 0;
+}
+
+/* Responsive adjustments */
+@media (max-width: 1024px) {
+  .chat-container {
+    display: none;
+  }
+
+  .my-hand-area {
+    flex: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .bottom-controls {
+    flex-direction: column;
+    align-items: center;
+    padding: 8px;
+    gap: 8px;
+  }
+
+  .chat-container {
+    width: 100%;
+    max-height: 200px;
+  }
+}
